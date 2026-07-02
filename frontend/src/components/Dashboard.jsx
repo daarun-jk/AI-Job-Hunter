@@ -36,6 +36,7 @@ import {
   askAIChat
 } from '../services/api';
 import './Dashboard.css';
+import { parseNameFromLinkedIn, generateEmailFromFormat } from '../utils/nameParser';
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState('tracker');
@@ -46,7 +47,7 @@ export default function Dashboard() {
   const [selectedModel, setSelectedModel] = useState('openai/gpt-oss-120b');
   
   const [isGmailConnected, setIsGmailConnected] = useState(false);
-  const [isDrafting, setIsDrafting] = useState(false);
+  const [draftingTarget, setDraftingTarget] = useState(null);
   
   useEffect(() => {
     fetch('http://localhost:3000/api/gmail/status')
@@ -139,7 +140,7 @@ export default function Dashboard() {
     return { subject, body };
   };
 
-  const saveGmailDraft = async (emailText, toAddress = '') => {
+  const saveGmailDraft = async (emailText, toAddress = '', target = '') => {
     if (!emailText) return;
     
     if (!isGmailConnected) {
@@ -149,7 +150,7 @@ export default function Dashboard() {
       return;
     }
     
-    setIsDrafting(true);
+    setDraftingTarget(target);
     try {
       const { subject, body } = parseEmail(emailText);
       const res = await fetch('http://localhost:3000/api/gmail/draft', {
@@ -170,7 +171,16 @@ export default function Dashboard() {
       console.error('Draft error:', err);
       alert('Error saving draft');
     }
-    setIsDrafting(false);
+    setDraftingTarget(null);
+  };
+
+  const injectNameIntoEmail = (emailText, linkedInUrl) => {
+    if (!emailText || !linkedInUrl) return emailText;
+    const parsedName = parseNameFromLinkedIn(linkedInUrl);
+    if (parsedName && parsedName.firstName) {
+      return emailText.replace(/\[Name\]/gi, parsedName.firstName);
+    }
+    return emailText;
   };
 
   const handleAIEvaluate = async (e) => {
@@ -193,10 +203,31 @@ export default function Dashboard() {
         setAiText(res.data['Job Description']);
       }
 
+      // Instantly generate LinkedIn search URLs
+      let finalJobData = res.data;
+      if (res?.data?.Company) {
+        const companyEncoded = encodeURIComponent(res.data.Company);
+        const recruiterUrl = `https://www.linkedin.com/search/results/people/?keywords=${companyEncoded}%20recruiter`;
+        const managerUrl = `https://www.linkedin.com/search/results/people/?keywords=${companyEncoded}%20hiring%20manager`;
+        
+        setContactsResult({
+          recruiterUrl,
+          managerUrl,
+          emailFormat: ''
+        });
+
+        finalJobData = {
+          ...res.data,
+          'Recruiter URL': recruiterUrl,
+          'Hiring Manager URL': managerUrl
+        };
+      }
+
       // Auto-save the evaluated job to the tracker with raw JSON
       if (res && res.data) {
-        res.data['Raw_Report_JSON'] = JSON.stringify(res.report);
-        await addJob(res.data);
+        finalJobData['Raw_Report_JSON'] = JSON.stringify(res.report);
+        setEvaluationResult(prev => ({ ...prev, data: finalJobData }));
+        await addJob(finalJobData);
         await loadJobs();
       }
     } catch (err) {
@@ -256,17 +287,11 @@ export default function Dashboard() {
     setIsGeneratingEmails(true);
     setError(null);
     try {
-      // If we don't have the email format yet, fetch it concurrently
-      let emailFormatPromise = null;
-      if (!contactsResult?.emailFormat && evaluationResult.data.Company) {
-         emailFormatPromise = findContacts(evaluationResult.data.Company, aiUrl, aiText, selectedModel);
-      }
-
-      const res = await generateEmails(aiUrl, aiText, resumeProfile, selectedModel);
-
-      if (emailFormatPromise) {
+      let currentEmailFormat = contactsResult?.emailFormat;
+      if (!currentEmailFormat && evaluationResult.data.Company) {
          try {
-           const contactRes = await emailFormatPromise;
+           const contactRes = await findContacts(evaluationResult.data.Company, aiUrl, aiText, selectedModel);
+           currentEmailFormat = contactRes.emailFormat;
            setContactsResult(prev => ({
              ...prev,
              emailFormat: contactRes.emailFormat,
@@ -278,6 +303,27 @@ export default function Dashboard() {
          }
       }
 
+      let recruiterName = null;
+      let managerName = null;
+      let recruiterEmail = '';
+      let managerEmail = '';
+
+      if (chosenRecruiterUrl && chosenRecruiterUrl.includes('/in/')) {
+        recruiterName = parseNameFromLinkedIn(chosenRecruiterUrl);
+        if (recruiterName && currentEmailFormat) {
+          recruiterEmail = generateEmailFromFormat(recruiterName.firstName, recruiterName.lastName, currentEmailFormat);
+        }
+      }
+      
+      if (chosenManagerUrl && chosenManagerUrl.includes('/in/')) {
+        managerName = parseNameFromLinkedIn(chosenManagerUrl);
+        if (managerName && currentEmailFormat) {
+          managerEmail = generateEmailFromFormat(managerName.firstName, managerName.lastName, currentEmailFormat);
+        }
+      }
+
+      const res = await generateEmails(aiUrl, aiText, resumeProfile, selectedModel, recruiterName, managerName, recruiterEmail, managerEmail);
+
       const updatedReport = {
         ...evaluationResult.report,
         recruiter_email: res.recruiter_email,
@@ -288,13 +334,23 @@ export default function Dashboard() {
         ...evaluationResult.data,
         Raw_Report_JSON: JSON.stringify(updatedReport)
       };
+      
+      if (currentEmailFormat) {
+        updatedData['Email Format'] = currentEmailFormat;
+      }
+      if (chosenRecruiterUrl) {
+        updatedData['Chosen Recruiter URL'] = chosenRecruiterUrl;
+      }
+      if (chosenManagerUrl) {
+        updatedData['Chosen Manager URL'] = chosenManagerUrl;
+      }
 
       setEvaluationResult({
         data: updatedData,
         report: updatedReport
       });
 
-      // Auto-save the newly generated emails back      // Auto-save
+      // Auto-save the newly generated emails back
       await addJob(updatedData);
       await loadJobs();
     } catch (err) {
@@ -314,8 +370,21 @@ export default function Dashboard() {
         ...prev,
         recruiterUrl: res.recruiterUrl,
         managerUrl: res.managerUrl,
-        emailFormat: prev?.emailFormat || '' // Do not update emailFormat here, save it for Generate Cold Emails
+        emailFormat: res.emailFormat
       }));
+      
+      // Auto-save this format and URLs to DB
+      const updatedData = {
+        ...evaluationResult.data,
+        'Recruiter URL': res.recruiterUrl || evaluationResult.data['Recruiter URL'],
+        'Hiring Manager URL': res.managerUrl || evaluationResult.data['Hiring Manager URL']
+      };
+      if (res.emailFormat) {
+        updatedData['Email Format'] = res.emailFormat;
+      }
+      setEvaluationResult(prev => ({ ...prev, data: updatedData }));
+      await addJob(updatedData);
+      await loadJobs();
     } catch (err) {
       setError('Failed to find contacts: ' + err.message);
     } finally {
@@ -391,11 +460,11 @@ export default function Dashboard() {
         setChosenManagerUrl(job['Chosen Manager URL'] || '');
         
         // Restore contacts search results if they were previously fetched and saved
-        if (job['Recruiter URL'] || job['Hiring Manager URL']) {
+        if (job['Recruiter URL'] || job['Hiring Manager URL'] || job['Email Format']) {
           setContactsResult({
             recruiterUrl: job['Recruiter URL'] || '',
             managerUrl: job['Hiring Manager URL'] || '',
-            emailFormat: '' // Email format is not saved in DB, so leave blank to fallback to 'Not found'
+            emailFormat: job['Email Format'] || ''
           });
         } else {
           setContactsResult(null);
@@ -477,6 +546,20 @@ export default function Dashboard() {
       (job.Status?.toLowerCase() || '').includes(searchStr)
     );
   });
+
+  // Compute emails for UI display dynamically
+  let displayRecruiterEmail = '';
+  let displayManagerEmail = '';
+  if (contactsResult?.emailFormat) {
+    if (chosenRecruiterUrl && chosenRecruiterUrl.includes('/in/')) {
+      const rName = parseNameFromLinkedIn(chosenRecruiterUrl);
+      if (rName) displayRecruiterEmail = generateEmailFromFormat(rName.firstName, rName.lastName, contactsResult.emailFormat);
+    }
+    if (chosenManagerUrl && chosenManagerUrl.includes('/in/')) {
+      const mName = parseNameFromLinkedIn(chosenManagerUrl);
+      if (mName) displayManagerEmail = generateEmailFromFormat(mName.firstName, mName.lastName, contactsResult.emailFormat);
+    }
+  }
 
   return (
     <div className={`app-layout ${isSidebarOpen ? '' : 'sidebar-closed'}`}>
@@ -783,6 +866,7 @@ export default function Dashboard() {
                         <option value="cybersec">Cybersecurity</option>
                         <option value="systems">Systems Software</option>
                         <option value="ai">AI / ML</option>
+                        <option value="it">Information Technology (IT)</option>
                       </select>
                       <p className="help-text">Select which CV profile you want to compare against this job.</p>
                     </div>
@@ -896,65 +980,53 @@ export default function Dashboard() {
 
                 <div className="recruiter-box">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                    <h4 style={{ margin: 0 }}>Identified Contacts</h4>
-                    <button
-                      onClick={handleFindContacts}
-                      className="eval-submit-btn"
-                      disabled={isFindingContacts}
-                      style={{ width: 'auto', padding: '0.5rem 1rem', fontSize: '0.9rem' }}
-                    >
-                      {isFindingContacts ? <><Loader2 size={16} className="spinner" /> Finding...</> : <><Search size={16} /> Find Contacts</>}
-                    </button>
+                    <h4 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      Identified Contacts
+                    </h4>
                   </div>
 
-                  {contactsResult && (
-                    <>
-                      <div className="contact-row mb-4">
-                        <p><strong>Recruiter Search:</strong> {
-                          contactsResult.recruiterUrl?.startsWith('http')
-                            ? <a href={contactsResult.recruiterUrl} target="_blank" rel="noreferrer">LinkedIn Search</a>
-                            : (contactsResult.recruiterUrl || 'Not found')
-                        }</p>
-                        <input
-                          type="url"
-                          placeholder="Paste chosen Recruiter LinkedIn URL here"
-                          className="url-input"
-                          style={{ marginTop: '0.5rem', padding: '0.5rem 1rem' }}
-                          value={chosenRecruiterUrl}
-                          onChange={(e) => setChosenRecruiterUrl(e.target.value)}
-                        />
-                      </div>
-                      <div className="contact-row">
-                        <p><strong>Hiring Manager Search:</strong> {
-                          contactsResult.managerUrl?.startsWith('http')
-                            ? <a href={contactsResult.managerUrl} target="_blank" rel="noreferrer">LinkedIn Search</a>
-                            : (contactsResult.managerUrl || 'Not found')
-                        }</p>
-                        <input
-                          type="url"
-                          placeholder="Paste chosen Manager LinkedIn URL here"
-                          className="url-input"
-                          style={{ marginTop: '0.5rem', padding: '0.5rem 1rem' }}
-                          value={chosenManagerUrl}
-                          onChange={(e) => setChosenManagerUrl(e.target.value)}
-                        />
-                      </div>
-                    </>
-                  )}
+                  <div className="contact-row mb-4">
+                    <p><strong>Recruiter Search:</strong> {
+                      contactsResult?.recruiterUrl?.startsWith('http')
+                        ? <a href={contactsResult.recruiterUrl} target="_blank" rel="noreferrer">LinkedIn Search</a>
+                        : (contactsResult?.recruiterUrl || 'Not found')
+                    }</p>
+                    <input
+                      type="url"
+                      placeholder="Paste chosen Recruiter LinkedIn URL here"
+                      className="url-input"
+                      style={{ marginTop: '0.5rem', padding: '0.5rem 1rem' }}
+                      value={chosenRecruiterUrl}
+                      onChange={(e) => setChosenRecruiterUrl(e.target.value)}
+                    />
+                  </div>
+                  <div className="contact-row mb-4">
+                    <p><strong>Hiring Manager Search:</strong> {
+                      contactsResult?.managerUrl?.startsWith('http')
+                        ? <a href={contactsResult.managerUrl} target="_blank" rel="noreferrer">LinkedIn Search</a>
+                        : (contactsResult?.managerUrl || 'Not found')
+                    }</p>
+                    <input
+                      type="url"
+                      placeholder="Paste chosen Manager LinkedIn URL here"
+                      className="url-input"
+                      style={{ marginTop: '0.5rem', padding: '0.5rem 1rem' }}
+                      value={chosenManagerUrl}
+                      onChange={(e) => setChosenManagerUrl(e.target.value)}
+                    />
+                  </div>
+
+                  <button
+                    onClick={handleGenerateEmails}
+                    className="eval-submit-btn"
+                    style={{ backgroundColor: '#8b5cf6', padding: '0.75rem 1rem', fontSize: '1rem', width: '100%', marginTop: '0.5rem' }}
+                    disabled={isGeneratingEmails}
+                  >
+                    {isGeneratingEmails ? <><Loader2 size={18} className="spinner" /> Generating Emails...</> : <><MessageSquare size={18} /> {evaluationResult.report.recruiter_email ? 'Regenerate Cold Emails' : 'Generate Cold Emails'}</>}
+                  </button>
                 </div>
 
-                <div className="emails-section recruiter-box" style={{ marginTop: '1.5rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                    <h4 style={{ margin: 0 }}>Cold Emails</h4>
-                    <button
-                      onClick={handleGenerateEmails}
-                      className="eval-submit-btn"
-                      style={{ backgroundColor: '#8b5cf6', padding: '0.5rem 1rem', fontSize: '0.9rem' }}
-                      disabled={isGeneratingEmails}
-                    >
-                      {isGeneratingEmails ? <><Loader2 size={16} className="spinner" /> Generating...</> : <><MessageSquare size={16} /> {evaluationResult.report.recruiter_email ? 'Regenerate Emails' : 'Generate Cold Emails'}</>}
-                    </button>
-                  </div>
+                <div className="emails-section" style={{ marginTop: '1.5rem' }}>
 
                   {contactsResult?.emailFormat && (
                     <div className="contact-row mb-4" style={{ backgroundColor: '#f8fafc', padding: '1rem', borderRadius: '0.5rem', border: '1px dashed #cbd5e1' }}>
@@ -969,13 +1041,22 @@ export default function Dashboard() {
                         <div className="email-preview-box">
                           <h5 style={{ margin: '0 0 1rem 0', fontSize: '1.15rem', color: '#0f172a' }}>Recruiter Email</h5>
                           
-                          {/* Subject Line */}
+                          {/* To / Subject */}
                           <div style={{ marginBottom: '1rem', padding: '0.75rem', backgroundColor: '#f8fafc', borderRadius: '0.25rem', border: '1px solid #cbd5e1' }}>
+                            {displayRecruiterEmail && (
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', borderBottom: '1px solid #e2e8f0', paddingBottom: '0.5rem' }}>
+                                <div>
+                                  <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#64748b', textTransform: 'uppercase', marginRight: '0.5rem' }}>To:</span>
+                                  <span style={{ fontWeight: '500', color: '#0f172a' }}>{displayRecruiterEmail}</span>
+                                </div>
+                                <button onClick={() => navigator.clipboard.writeText(displayRecruiterEmail)} className="copy-btn">Copy</button>
+                              </div>
+                            )}
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
                               <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#64748b', textTransform: 'uppercase' }}>Subject</span>
-                              <button onClick={() => navigator.clipboard.writeText(parseEmail(evaluationResult.report.recruiter_email).subject)} className="copy-btn">Copy</button>
+                              <button onClick={() => navigator.clipboard.writeText(parseEmail(injectNameIntoEmail(evaluationResult.report.recruiter_email, chosenRecruiterUrl)).subject)} className="copy-btn">Copy</button>
                             </div>
-                            <div style={{ fontWeight: '500', color: '#0f172a' }}>{parseEmail(evaluationResult.report.recruiter_email).subject}</div>
+                            <div style={{ fontWeight: '500', color: '#0f172a' }}>{parseEmail(injectNameIntoEmail(evaluationResult.report.recruiter_email, chosenRecruiterUrl)).subject}</div>
                           </div>
 
                           {/* Body */}
@@ -984,13 +1065,15 @@ export default function Dashboard() {
                               <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#64748b', textTransform: 'uppercase' }}>Body</span>
                               <div>
                                 <button onClick={() => copyRichText('recruiter-email-body')} className="copy-btn">Copy</button>
-                                <button onClick={() => saveGmailDraft(evaluationResult.report.recruiter_email, contactsResult?.emailFormat)} disabled={isDrafting} className="copy-btn" style={{ marginLeft: '0.5rem', backgroundColor: '#ea4335', color: 'white', borderColor: '#ea4335' }}>
-                                  {isDrafting ? 'Saving...' : (isGmailConnected ? 'Save to Drafts' : 'Connect Gmail')}
+                                <button onClick={() => saveGmailDraft(injectNameIntoEmail(evaluationResult.report.recruiter_email, chosenRecruiterUrl), displayRecruiterEmail, 'recruiter')} disabled={draftingTarget === 'recruiter'} className="copy-btn" style={{ marginLeft: '0.5rem', backgroundColor: '#ea4335', color: 'white', borderColor: '#ea4335' }}>
+                                  {draftingTarget === 'recruiter' ? 'Saving...' : (isGmailConnected ? 'Save to Drafts' : 'Connect Gmail')}
                                 </button>
                               </div>
                             </div>
-                            <div id="recruiter-email-body" className="email-markdown" style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', lineHeight: '1.6', fontSize: '0.95rem', color: '#1e293b' }}>
-                              {parseEmail(evaluationResult.report.recruiter_email).body}
+                            <div id="recruiter-email-body" className="email-markdown markdown-preview" style={{ fontFamily: 'inherit', lineHeight: '1.6', fontSize: '0.95rem', color: '#1e293b' }}>
+                              <ReactMarkdown remarkPlugins={[remarkBreaks]}>
+                                {parseEmail(injectNameIntoEmail(evaluationResult.report.recruiter_email, chosenRecruiterUrl)).body}
+                              </ReactMarkdown>
                             </div>
                           </div>
                         </div>
@@ -999,13 +1082,22 @@ export default function Dashboard() {
                         <div className="email-preview-box">
                           <h5 style={{ margin: '0 0 1rem 0', fontSize: '1.15rem', color: '#0f172a' }}>Hiring Manager Email</h5>
                           
-                          {/* Subject Line */}
+                          {/* To / Subject */}
                           <div style={{ marginBottom: '1rem', padding: '0.75rem', backgroundColor: '#f8fafc', borderRadius: '0.25rem', border: '1px solid #cbd5e1' }}>
+                            {displayManagerEmail && (
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', borderBottom: '1px solid #e2e8f0', paddingBottom: '0.5rem' }}>
+                                <div>
+                                  <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#64748b', textTransform: 'uppercase', marginRight: '0.5rem' }}>To:</span>
+                                  <span style={{ fontWeight: '500', color: '#0f172a' }}>{displayManagerEmail}</span>
+                                </div>
+                                <button onClick={() => navigator.clipboard.writeText(displayManagerEmail)} className="copy-btn">Copy</button>
+                              </div>
+                            )}
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
                               <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#64748b', textTransform: 'uppercase' }}>Subject</span>
-                              <button onClick={() => navigator.clipboard.writeText(parseEmail(evaluationResult.report.manager_email).subject)} className="copy-btn">Copy</button>
+                              <button onClick={() => navigator.clipboard.writeText(parseEmail(injectNameIntoEmail(evaluationResult.report.manager_email, chosenManagerUrl)).subject)} className="copy-btn">Copy</button>
                             </div>
-                            <div style={{ fontWeight: '500', color: '#0f172a' }}>{parseEmail(evaluationResult.report.manager_email).subject}</div>
+                            <div style={{ fontWeight: '500', color: '#0f172a' }}>{parseEmail(injectNameIntoEmail(evaluationResult.report.manager_email, chosenManagerUrl)).subject}</div>
                           </div>
 
                           {/* Body */}
@@ -1014,13 +1106,15 @@ export default function Dashboard() {
                               <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#64748b', textTransform: 'uppercase' }}>Body</span>
                               <div>
                                 <button onClick={() => copyRichText('manager-email-body')} className="copy-btn">Copy</button>
-                                <button onClick={() => saveGmailDraft(evaluationResult.report.manager_email, contactsResult?.emailFormat)} disabled={isDrafting} className="copy-btn" style={{ marginLeft: '0.5rem', backgroundColor: '#ea4335', color: 'white', borderColor: '#ea4335' }}>
-                                  {isDrafting ? 'Saving...' : (isGmailConnected ? 'Save to Drafts' : 'Connect Gmail')}
+                                <button onClick={() => saveGmailDraft(injectNameIntoEmail(evaluationResult.report.manager_email, chosenManagerUrl), displayManagerEmail, 'manager')} disabled={draftingTarget === 'manager'} className="copy-btn" style={{ marginLeft: '0.5rem', backgroundColor: '#ea4335', color: 'white', borderColor: '#ea4335' }}>
+                                  {draftingTarget === 'manager' ? 'Saving...' : (isGmailConnected ? 'Save to Drafts' : 'Connect Gmail')}
                                 </button>
                               </div>
                             </div>
-                            <div id="manager-email-body" className="email-markdown" style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', lineHeight: '1.6', fontSize: '0.95rem', color: '#1e293b' }}>
-                              {parseEmail(evaluationResult.report.manager_email).body}
+                            <div id="manager-email-body" className="email-markdown markdown-preview" style={{ fontFamily: 'inherit', lineHeight: '1.6', fontSize: '0.95rem', color: '#1e293b' }}>
+                              <ReactMarkdown remarkPlugins={[remarkBreaks]}>
+                                {parseEmail(injectNameIntoEmail(evaluationResult.report.manager_email, chosenManagerUrl)).body}
+                              </ReactMarkdown>
                             </div>
                           </div>
                         </div>
@@ -1069,6 +1163,7 @@ export default function Dashboard() {
                     <option value="cybersec">Cybersecurity</option>
                     <option value="systems">Systems / Low Level</option>
                     <option value="ai">AI / ML</option>
+                    <option value="it">Information Technology (IT)</option>
                   </select>
                   <button type="submit" disabled={isContactoLoading} className="secondary-btn">
                     {isContactoLoading ? 'Generating...' : 'Generate Message'}
@@ -1129,6 +1224,7 @@ export default function Dashboard() {
                     <option value="cybersec">Cybersecurity</option>
                     <option value="ai">AI / ML</option>
                     <option value="systems">Systems Software</option>
+                    <option value="it">Information Technology (IT)</option>
                   </select>
                   <select value={pdfData.format} onChange={e => setPdfData({ ...pdfData, format: e.target.value })}>
                     <option value="letter">US Letter (Americas)</option>
@@ -1163,6 +1259,7 @@ export default function Dashboard() {
                     <option value="cybersec">Cybersecurity</option>
                     <option value="ai">AI / ML</option>
                     <option value="systems">Systems Software</option>
+                    <option value="it">Information Technology (IT)</option>
                   </select>
                   <button type="submit" disabled={isCoverLoading} className="secondary-btn">
                     {isCoverLoading ? 'Generating PDF...' : 'Generate Cover Letter PDF'}

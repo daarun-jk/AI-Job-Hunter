@@ -1,5 +1,15 @@
 # Server Architecture & Changelog
 
+## v2.3.0 - Workflow & UX Optimizations (2026-07-02)
+
+### ✨ New Features & Fixes
+- **Smart Contact Parsing & To-Addresses**: The system now seamlessly parses First and Last names from LinkedIn profile URLs you paste. It automatically calculates the actual `To:` email address based on the AI-predicted corporate format (e.g., matching a LinkedIn name with `first.last@company.com`) and wires it directly into the generated emails and drafts.
+- **Dynamic Salutations & Draft Emails**: Added an automated frontend name-injector (`injectNameIntoEmail`) that replaces placeholders with parsed First Names instantly when pasting a LinkedIn URL, ensuring correct names go into Gmail drafts.
+- **Instant Search Links**: Sped up Job Evaluation dramatically by removing the slow LLM contact finding step. LinkedIn Recruiter and Hiring Manager search URLs are now instantly generated locally using the evaluated company name.
+- **Predict-on-Demand Emails**: AI now only predicts corporate email formats (e.g., `first.last@company.com`) at the exact moment you click "Generate Cold Emails", eliminating unnecessary loading screens during initial job evaluation.
+- **Seamless UI Layout**: Removed unneeded buttons and spinners. Moved the "Generate Cold Emails" button natively into the "Identified Contacts" section and stripped out bulky borders for a cleaner look.
+- **Persistent Tracker Data**: Fixed a bug where manually entered Recruiter/Manager LinkedIn URLs were not saving to the Excel backend. They now auto-save and persist properly when re-opening jobs.
+
 ## v2.2.0 - Gmail Draft API Integration (2026-06-27)
 
 ### ✨ New Features & Fixes

@@ -55,14 +55,14 @@ export const evaluateJobWithAI = async (jobUrl, jobText, resumeProfile, model) =
   }
 };
 
-export const generateEmails = async (jobUrl, jobText, resumeProfile, model) => {
+export const generateEmails = async (jobUrl, jobText, resumeProfile, model, recruiterName, managerName, recruiterEmail, managerEmail) => {
   try {
     const response = await fetch(`${API_BASE_URL}/jobs/generate-emails`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ url: jobUrl, text: jobText, resumeProfile, model }),
+      body: JSON.stringify({ url: jobUrl, text: jobText, resumeProfile, model, recruiterName, managerName, recruiterEmail, managerEmail }),
     });
     const result = await response.json();
     if (!response.ok) {

@@ -309,7 +309,7 @@ Return ONLY the JSON object, no other text.`;
 /**
  * Extract job emails using Gemini
  */
-async function extractJobEmails(scrapedText, resumeProfile = 'sde', requestModel = null) {
+async function extractJobEmails(scrapedText, resumeProfile = 'sde', requestModel = null, jobUrl = '', recruiterName = null, managerName = null, recruiterEmail = '', managerEmail = '') {
     if (!GEMINI_API_KEY) {
         throw new Error('GEMINI_API_KEY not configured in environment');
     }
@@ -338,16 +338,23 @@ async function extractJobEmails(scrapedText, resumeProfile = 'sde', requestModel
 CANDIDATE CV:
 ${cvContent || 'Not provided'}
 
-COLD EMAIL TEMPLATES & RESUME POINTS:
+COLD EMAIL TEMPLATES:
 ${emailsContent || 'Not provided'}
 
 JOB POSTING:
 ${scrapedText.slice(0, 4000)}
 
-Using the provided COLD EMAIL TEMPLATES & RESUME POINTS:
-1. Select the most relevant resume point from "recruiter_resume_points" for the Recruiter email, and the most relevant from "manager_resume_points" for the Hiring Manager email.
-2. Fill in the "recruiter_template" and "manager_template" by replacing [Req#], [Role Name] / [Role], [Req ID], [Company] / [Company Name], [domain], and your chosen [resume point] with appropriate values from the job posting and the selected resume point. Leave [Name] as is.
-3. Return the generated emails using EXACTLY the following XML delimiters. Do not use JSON.
+JOB URL:
+${jobUrl || 'Not provided'}
+
+Using the provided COLD EMAIL TEMPLATES:
+1. Fill in the "recruiter_template" and "manager_template" by replacing all bracketed placeholders (e.g., [Req#], [Role Name as hyperlink], [Core Track/Keyword], [Action verb], etc.) with appropriate values derived from the JOB POSTING and CANDIDATE CV.
+2. For [Role name as hyperlink] or [Position Title as hyperlink], create a markdown hyperlink using the exact JOB URL string provided above (e.g., [Job Title](the actual JOB URL string)). Do NOT use example URLs.
+3. Synthesize the requested bullet points using actual experience from the CV that best match the job posting. Format them exactly as requested in the template.
+4. Replace [Name] with the provided recruiter/manager first name. If a name is not provided, use a generic greeting like "Recruiter" or "Hiring Manager".
+   - Recruiter First Name: ${recruiterName ? recruiterName.firstName : 'Not provided'}
+   - Manager First Name: ${managerName ? managerName.firstName : 'Not provided'}
+5. Return the generated emails using EXACTLY the following XML delimiters. Do not use JSON.
 
 <RECRUITER_EMAIL>
 Put the generated recruiter email here...
@@ -965,14 +972,14 @@ Provide a highly tailored, intelligent, and concise response to the client's req
 // POST /api/jobs/generate-emails - Generate emails after evaluation
 app.post('/api/jobs/generate-emails', async (req, res) => {
     try {
-        const { url, text, resumeProfile, model } = req.body;
+        const { url, text, resumeProfile, model, recruiterName, managerName, recruiterEmail, managerEmail } = req.body;
         
         let jobText = text || '';
         if (!jobText || jobText.trim().length < 50) {
             jobText = await scrapeJobPostingText(url);
         }
 
-        const emails = await extractJobEmails(jobText, resumeProfile, model);
+        const emails = await extractJobEmails(jobText, resumeProfile, model, url, recruiterName, managerName, recruiterEmail, managerEmail);
 
         res.status(200).json({
             success: true,
