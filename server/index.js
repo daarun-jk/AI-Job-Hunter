@@ -5,9 +5,10 @@ const path = require('path');
 const fs = require('fs');
 const { chromium } = require('playwright');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const { exec } = require('child_process');
+const { exec, execFile } = require('child_process');
 const util = require('util');
 const execPromise = util.promisify(exec);
+const execFilePromise = util.promisify(execFile);
 const { google } = require('googleapis');
 const MailComposer = require('nodemailer/lib/mail-composer');
 const { marked } = require('marked');
@@ -1328,7 +1329,7 @@ INSTRUCTIONS:
 
         // 5. Execute generate-pdf.mjs
         const scriptPath = path.join(ROOT, 'generate-pdf.mjs');
-        await execPromise(`node "${scriptPath}" "${htmlFile}" "${pdfFile}" --format=${format}`, { cwd: ROOT });
+        await execFilePromise('node', [scriptPath, htmlFile, pdfFile, `--format=${format}`], { cwd: ROOT });
 
         // Clean up temp HTML
         try {
