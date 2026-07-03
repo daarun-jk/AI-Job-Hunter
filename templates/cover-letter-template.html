@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Cover Letter — {{NAME}}</title>
+<style>
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  html {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  body {
+    font-family: Calibri, Helvetica, Arial, sans-serif;
+    font-size: 12pt;
+    line-height: 1.15;
+    color: #000000;
+    background: #ffffff;
+    padding: 0;
+  }
+
+  p {
+    margin-bottom: 11pt;
+  }
+
+  .sender-info {
+    margin-bottom: 22pt;
+    line-height: 1.15;
+  }
+
+  .recipient-info {
+    margin-bottom: 22pt;
+    line-height: 1.15;
+  }
+</style>
+</head>
+<body>
+  <div class="sender-info">
+    {{NAME}}<br>
+    {{LOCATION}}<br>
+    {{EMAIL}}<br>
+    {{PHONE}}
+  </div>
+
+  <div class="recipient-info">
+    {{RECIPIENT_TITLE}}<br>
+    {{COMPANY}}<br>
+    {{COMPANY_LOCATION}}
+  </div>
+
+  <p>{{GREETING}}</p>
+
+  {{PARAGRAPHS_BLOCK}}
+
+  <p>
+    <br>
+    {{CLOSING}}<br>
+    {{NAME}}
+  </p>
+</body>
+</html>
