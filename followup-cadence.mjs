@@ -14,7 +14,7 @@
 import { readFileSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
-import yaml from 'js-yaml';
+import * as yaml from 'js-yaml';
 
 const CAREER_OPS = dirname(fileURLToPath(import.meta.url));
 const APPS_FILE = existsSync(join(CAREER_OPS, 'data/applications.md'))
