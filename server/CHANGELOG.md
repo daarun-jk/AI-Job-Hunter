@@ -1,5 +1,14 @@
 # Server Architecture & Changelog
 
+## v2.4.0 - H1B Checking & Dashboard Polish (2026-07-08)
+
+### ✨ New Features & Fixes
+- **LLM H1B Sponsorship Check**: The Gemini evaluation prompt now intelligently queries the LLM's vast historical data to determine if a company has a track record of sponsoring H1B visas in the US.
+- **Visual H1B Badges**: The frontend evaluation report now explicitly displays a green "H1B sponsored in the past", a red "H1B not sponsored in the past", or a gray "H1B Status Unknown" badge based on the AI's confidence. 
+- **Inline Editable Tracker Fields**: The main pipeline tracker now supports inline editing for the **Company Name** and **Job ID** fields using `<textarea>` and `<input>` elements seamlessly integrated into the table.
+- **Tracker Typography & Layout Fixes**: Condensed column widths for Company, Job ID, Status, and Resume Profile fields to give more breathing room. Perfected font-size inheritance so all inputs match the standard table typography cleanly.
+
+
 ## v2.3.0 - Workflow & UX Optimizations (2026-07-02)
 
 ### ✨ New Features & Fixes

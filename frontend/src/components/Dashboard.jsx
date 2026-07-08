@@ -448,6 +448,46 @@ export default function Dashboard() {
     }
   };
 
+  const handleCompanyChange = async (e, job) => {
+    e.stopPropagation();
+    const newCompany = e.target.value;
+
+    const updatedJobs = jobs.map(j =>
+      j['Job Link'] === job['Job Link'] && j['Resume Profile'] === job['Resume Profile']
+        ? { ...j, Company: newCompany }
+        : j
+    );
+    setJobs(updatedJobs);
+
+    try {
+      await addJob({ ...job, Company: newCompany });
+      await loadJobs();
+    } catch (err) {
+      setError('Failed to update company: ' + err.message);
+      await loadJobs();
+    }
+  };
+
+  const handleJobIdChange = async (e, job) => {
+    e.stopPropagation();
+    const newJobId = e.target.value;
+
+    const updatedJobs = jobs.map(j =>
+      j['Job Link'] === job['Job Link'] && j['Resume Profile'] === job['Resume Profile']
+        ? { ...j, 'Job ID': newJobId }
+        : j
+    );
+    setJobs(updatedJobs);
+
+    try {
+      await addJob({ ...job, 'Job ID': newJobId });
+      await loadJobs();
+    } catch (err) {
+      setError('Failed to update Job ID: ' + err.message);
+      await loadJobs();
+    }
+  };
+
   const handleRowClick = (job) => {
     if (job.Raw_Report_JSON) {
       try {
@@ -726,7 +766,38 @@ export default function Dashboard() {
                           <tr key={index} onClick={() => handleRowClick(job)} style={{ cursor: job.Raw_Report_JSON ? 'pointer' : 'default' }}>
                             <td>
                               <div className="company-cell">
-                                {job.Company || 'Unknown'}
+                                <textarea
+                                  value={job.Company || ''}
+                                  onChange={(e) => handleCompanyChange(e, job)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="company-input"
+                                  rows={2}
+                                  style={{
+                                    border: '1px solid transparent',
+                                    backgroundColor: 'transparent',
+                                    color: 'inherit',
+                                    outline: 'none',
+                                    cursor: 'text',
+                                    fontFamily: 'inherit',
+                                    fontSize: 'inherit',
+                                    padding: '0.25rem',
+                                    borderRadius: '0.25rem',
+                                    width: '100%',
+                                    minWidth: '110px',
+                                    fontWeight: 'inherit',
+                                    boxSizing: 'border-box',
+                                    resize: 'none',
+                                    overflow: 'hidden'
+                                  }}
+                                  onFocus={(e) => {
+                                    e.target.style.border = '1px solid #cbd5e1';
+                                    e.target.style.backgroundColor = 'white';
+                                  }}
+                                  onBlur={(e) => {
+                                    e.target.style.border = '1px solid transparent';
+                                    e.target.style.backgroundColor = 'transparent';
+                                  }}
+                                />
                               </div>
                             </td>
                             <td>
@@ -738,14 +809,44 @@ export default function Dashboard() {
                                 <span className="fw-500">{job['Job Role'] || 'Unknown Role'}</span>
                               )}
                             </td>
-                            <td className="text-muted">{job['Job ID'] || '-'}</td>
+                            <td className="text-muted">
+                              <input
+                                type="text"
+                                value={job['Job ID'] || ''}
+                                onChange={(e) => handleJobIdChange(e, job)}
+                                onClick={(e) => e.stopPropagation()}
+                                className="jobid-input"
+                                style={{
+                                  border: '1px solid transparent',
+                                  backgroundColor: 'transparent',
+                                  color: 'inherit',
+                                  outline: 'none',
+                                  cursor: 'text',
+                                  fontFamily: 'inherit',
+                                  fontSize: 'inherit',
+                                  padding: '0.25rem',
+                                  borderRadius: '0.25rem',
+                                  width: '75px',
+                                  fontWeight: 'inherit',
+                                  boxSizing: 'border-box'
+                                }}
+                                onFocus={(e) => {
+                                  e.target.style.border = '1px solid #cbd5e1';
+                                  e.target.style.backgroundColor = 'white';
+                                }}
+                                onBlur={(e) => {
+                                  e.target.style.border = '1px solid transparent';
+                                  e.target.style.backgroundColor = 'transparent';
+                                }}
+                              />
+                            </td>
                             <td>
                               <select
                               value={job.Status || 'Evaluated'}
                               onChange={(e) => handleStatusChange(e, job)}
                               onClick={(e) => e.stopPropagation()}
                               className={`status-badge ${(job.Status || '').toLowerCase().replace(/\s+/g, '-')}`}
-                              style={{ appearance: 'auto', border: 'none', cursor: 'pointer', outline: 'none' }}
+                              style={{ appearance: 'auto', border: 'none', cursor: 'pointer', outline: 'none', width: '105px', padding: '0.25rem 0.5rem' }}
                             >
                               <option value="Evaluated">Evaluated</option>
                               <option value="Applied">Applied</option>
@@ -759,7 +860,7 @@ export default function Dashboard() {
                             {job.Score ? <span className="score-badge">{job.Score}/5</span> : '-'}
                           </td>
                           <td>
-                            {job['Resume Profile'] ? <span className="status-badge" style={{ backgroundColor: '#f1f5f9', color: '#64748b' }}>{job['Resume Profile'].toUpperCase()}</span> : '-'}
+                            {job['Resume Profile'] ? <span className="status-badge" style={{ backgroundColor: '#f1f5f9', color: '#64748b', fontSize: '0.8rem', padding: '0.2rem 0.5rem', minWidth: '50px', textAlign: 'center' }}>{job['Resume Profile'].toUpperCase()}</span> : '-'}
                           </td>
                           <td className="text-muted">
                             <input 
@@ -775,6 +876,7 @@ export default function Dashboard() {
                                 outline: 'none',
                                 cursor: 'pointer',
                                 fontFamily: 'inherit',
+                                fontSize: 'inherit',
                                 padding: '0.25rem',
                                 borderRadius: '0.25rem'
                               }}
@@ -885,6 +987,15 @@ export default function Dashboard() {
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.25rem' }}>
                       <h2 className="report-company" style={{ margin: 0, fontWeight: 'bold', fontSize: '1.5rem', color: '#0f172a' }}>{evaluationResult.data.Company}</h2>
+                      {evaluationResult.report.h1b_sponsored === true && (
+                        <span style={{ backgroundColor: '#dcfce7', color: '#166534', padding: '0.25rem 0.75rem', borderRadius: '9999px', fontSize: '0.85rem', fontWeight: '500' }}>H1B sponsored in the past</span>
+                      )}
+                      {evaluationResult.report.h1b_sponsored === false && (
+                        <span style={{ backgroundColor: '#fee2e2', color: '#991b1b', padding: '0.25rem 0.75rem', borderRadius: '9999px', fontSize: '0.85rem', fontWeight: '500' }}>H1B not sponsored in the past</span>
+                      )}
+                      {(evaluationResult.report.h1b_sponsored === null || evaluationResult.report.h1b_sponsored === undefined) && (
+                        <span style={{ backgroundColor: '#f1f5f9', color: '#64748b', padding: '0.25rem 0.75rem', borderRadius: '9999px', fontSize: '0.85rem', fontWeight: '500' }}>H1B Status Unknown</span>
+                      )}
                     </div>
                     <h3 className="report-title" style={{ margin: 0, fontWeight: 'bold', color: '#475569', fontSize: '1.1rem', marginTop: '0.25rem' }}>{evaluationResult.data['Job Role'] || evaluationResult.data.Role}</h3>
                   </div>
